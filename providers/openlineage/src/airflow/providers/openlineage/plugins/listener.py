@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
 from datetime import datetime
 from functools import cache
 from typing import TYPE_CHECKING
@@ -1036,7 +1036,12 @@ class OpenLineageListener:
             self.log.warning("OpenLineage received exception in method on_dag_run_failed", exc_info=e)
 
     def submit_callable(self, callable, *args, **kwargs):
-        fut = self.executor.submit(callable, *args, **kwargs)
+        try:
+            fut = self.executor.submit(callable, *args, **kwargs)
+        except BrokenExecutor:
+            self.log.warning("OpenLineage ProcessPoolExecutor is broken, recreating it.")
+            self._executor = None
+            fut = self.executor.submit(callable, *args, **kwargs)
         fut.add_done_callback(self.log_submit_error)
         return fut
 

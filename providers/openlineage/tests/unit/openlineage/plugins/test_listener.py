@@ -19,7 +19,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
-from concurrent.futures import Future
+from concurrent.futures import BrokenExecutor, Future
 from contextlib import suppress
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -1052,6 +1052,45 @@ class TestOpenLineageListenerAirflow2:
         assert callback_future.done()
         listener.log.debug.assert_not_called()
         listener.log.warning.assert_called_once()
+
+    @mock.patch("airflow.providers.openlineage.plugins.listener.ProcessPoolExecutor", autospec=True)
+    def test_submit_callable_recreates_executor_on_broken_pool(self, mock_executor_cls):
+        pool_1 = MagicMock()
+        pool_2 = MagicMock()
+        mock_executor_cls.side_effect = [pool_1, pool_2]
+
+        listener = OpenLineageListener()
+        listener.log = MagicMock()
+
+        _ = listener.executor
+        assert mock_executor_cls.call_count == 1
+
+        pool_1.submit.side_effect = BrokenExecutor("child died")
+
+        noop = MagicMock()
+        listener.submit_callable(noop)
+
+        assert mock_executor_cls.call_count == 2
+        pool_2.submit.assert_called_once_with(noop)
+        listener.log.warning.assert_called_once()
+        assert "broken" in listener.log.warning.call_args[0][0].lower()
+
+    @mock.patch("airflow.providers.openlineage.plugins.listener.ProcessPoolExecutor", autospec=True)
+    def test_submit_callable_propagates_when_recreated_pool_also_fails(self, mock_executor_cls):
+        pool_1 = MagicMock()
+        pool_2 = MagicMock()
+        mock_executor_cls.side_effect = [pool_1, pool_2]
+
+        listener = OpenLineageListener()
+        listener.log = MagicMock()
+
+        _ = listener.executor
+
+        pool_1.submit.side_effect = BrokenExecutor("child died")
+        pool_2.submit.side_effect = BrokenExecutor("still broken")
+
+        with pytest.raises(BrokenExecutor):
+            listener.submit_callable(MagicMock())
 
 
 @pytest.mark.skipif(not AIRFLOW_V_3_0_PLUS, reason="Airflow 3 tests")
@@ -2127,6 +2166,45 @@ class TestOpenLineageListenerAirflow3:
         assert callback_future.done()
         listener.log.debug.assert_not_called()
         listener.log.warning.assert_called_once()
+
+    @mock.patch("airflow.providers.openlineage.plugins.listener.ProcessPoolExecutor", autospec=True)
+    def test_submit_callable_recreates_executor_on_broken_pool(self, mock_executor_cls):
+        pool_1 = MagicMock()
+        pool_2 = MagicMock()
+        mock_executor_cls.side_effect = [pool_1, pool_2]
+
+        listener = OpenLineageListener()
+        listener.log = MagicMock()
+
+        _ = listener.executor
+        assert mock_executor_cls.call_count == 1
+
+        pool_1.submit.side_effect = BrokenExecutor("child died")
+
+        noop = MagicMock()
+        listener.submit_callable(noop)
+
+        assert mock_executor_cls.call_count == 2
+        pool_2.submit.assert_called_once_with(noop)
+        listener.log.warning.assert_called_once()
+        assert "broken" in listener.log.warning.call_args[0][0].lower()
+
+    @mock.patch("airflow.providers.openlineage.plugins.listener.ProcessPoolExecutor", autospec=True)
+    def test_submit_callable_propagates_when_recreated_pool_also_fails(self, mock_executor_cls):
+        pool_1 = MagicMock()
+        pool_2 = MagicMock()
+        mock_executor_cls.side_effect = [pool_1, pool_2]
+
+        listener = OpenLineageListener()
+        listener.log = MagicMock()
+
+        _ = listener.executor
+
+        pool_1.submit.side_effect = BrokenExecutor("child died")
+        pool_2.submit.side_effect = BrokenExecutor("still broken")
+
+        with pytest.raises(BrokenExecutor):
+            listener.submit_callable(MagicMock())
 
 
 @pytest.mark.skipif(AIRFLOW_V_3_0_PLUS, reason="Airflow 2 tests")
